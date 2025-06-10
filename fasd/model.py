@@ -4,10 +4,10 @@ from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, LabelEncoder
 
 
 from .base import BaseGenerator
-from .model_components import FASD_Generator
+from .model_components import FASD
 
 
-class FASD(BaseGenerator):
+class TabularFASD(BaseGenerator):
 
     def __init__(
         self,
@@ -60,7 +60,7 @@ class FASD(BaseGenerator):
         self.ori_cols = X.columns.tolist()
 
         # split into X and y
-        y = X[[self.target_column]].copy()
+        y = X[self.target_column].copy()
         X = X.drop(self.target_column, axis=1)
 
         # do FASD specific preprocessing (one-hot encoding, minmax-scaling)
@@ -86,9 +86,9 @@ class FASD(BaseGenerator):
         if self.target_column in discrete_features:
             encoder = LabelEncoder()  # classifiers expect integer labels
             task = "classification"
-            target_dim = y.squeeze().nunique()
+            target_dim = y.nunique()
         else:
-            if y.squeeze().nunique() < 15:
+            if y.nunique() < 15:
                 raise Warning(
                     "Found less than 15 unique values in the target column. "
                     "Are you sure the target should not be handled as discrete? "
@@ -98,10 +98,10 @@ class FASD(BaseGenerator):
             encoder = MinMaxScaler(feature_range=(-1, 1))
             target_dim = 1
         y = encoder.fit_transform(y)
-        y = pd.DataFrame(y, columns=[self.target_column])
+        y = pd.Series(y, name=self.target_column)
         self.encoder_y = encoder
 
-        self.fasd = FASD_Generator(
+        self.fasd = FASD(
             task=task,
             target_dim=target_dim,
             input_dims=input_dims,
@@ -157,7 +157,7 @@ class FASD(BaseGenerator):
 
         # reverse y preprocessing
         syn_y = self.encoder_y.inverse_transform(syn_y)
-        syn_y = pd.Series(syn_y.flatten(), name=self.target_column)
+        syn_y = pd.Series(syn_y, name=self.target_column)
 
         syn = pd.concat((syn_X, syn_y), axis=1)
         syn = syn[self.ori_cols]

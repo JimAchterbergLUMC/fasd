@@ -3,13 +3,14 @@ import numpy as np
 import torch
 from torch import nn
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 from .mlp import MLP
 
 
-class FASD_Generator:
+class FASD:
 
     def __init__(
         self,
@@ -82,9 +83,9 @@ class FASD_Generator:
             random_state=random_state,
         )
 
-    def _train(self, X: pd.DataFrame, y: pd.DataFrame):
+    def _train(self, X: pd.DataFrame, y: pd.Series):
         self.X_cols = X.columns
-        self.y_col = y.columns
+        self.y_col = y.name
         # turn input into torch tensors
         Xt = torch.from_numpy(X.to_numpy()).float()
         yt = torch.from_numpy(y.to_numpy()).float()
@@ -124,7 +125,7 @@ class FASD_Generator:
 
         # turn X and y into dataframes (note that before this all data was still on-device)
         X = pd.DataFrame(Xt_syn.detach().cpu().numpy(), columns=self.X_cols)
-        y = pd.DataFrame(yt_syn.detach().cpu().numpy(), columns=self.y_col)
+        y = pd.Series(yt_syn.detach().cpu().numpy(), name=self.y_col)
 
         return X, y
 
@@ -575,10 +576,16 @@ class VAE(nn.Module):
         return recon_x, mu, logvar
 
     def _train(self, X: torch.Tensor):
-
+        # minmax scale VAE input ->  relevant when representation_nonlin is not "tanh" or "none" (in the latter case it's clamped to [-1,1])
+        self.min_x, self.max_x = (
+            X.min(dim=0, keepdim=True).values,
+            X.max(dim=0, keepdim=True).values,
+        )
+        denom = self.max_x - self.min_x
+        denom[denom == 0] = 1
+        X = 2 * (X - self.min_x) / denom - 1
         # create validation split
         X_pd = pd.DataFrame(X.detach().cpu().numpy(), columns=list(range(X.shape[-1])))
-
         X, X_val = train_test_split(
             X_pd,
             train_size=0.8,
@@ -650,7 +657,13 @@ class VAE(nn.Module):
             data.append(fake)
 
         data = torch.cat(data, dim=0)
-        return data[:n]
+        data = data[:n]
+        # reverse the [-1,1] scaling
+        denom = self.max_x - self.min_x
+        denom[denom == 0] = 1
+        data = 2 * (data - self.min_x) / denom - 1
+        data = ((data + 1) * denom / 2) + self.min_x
+        return data
 
     def validate(self, val_loader):
         self.eval()

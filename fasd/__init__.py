@@ -1,1 +1,1 @@
-from .model import FASD
+from .model import TabularFASD
