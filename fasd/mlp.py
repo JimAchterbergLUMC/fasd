@@ -26,6 +26,8 @@ class MixedOutputActivations(nn.Module):
                 activated.append(torch.sigmoid(xi))
             elif act == "relu":
                 activated.append(F.relu(xi))
+            elif act == "leaky_relu":
+                activated.append(F.leaky_relu(xi))
             elif act == "softmax":
                 activated.append(F.softmax(xi, dim=1))
             elif act == "gumbel_softmax":
