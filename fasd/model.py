@@ -1,5 +1,4 @@
 import pandas as pd
-import torch
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler, LabelEncoder
 
 
