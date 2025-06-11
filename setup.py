@@ -1,9 +1,14 @@
 from setuptools import setup, find_packages
 
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
+
 setup(
     name="fasd",
     version="0.1.0",
     description="Pytorch model for generating fidelity agnostic synthetic data",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     author="Jim Achterberg",
     author_email="j.l.achterberg@lumc.nl",
     packages=find_packages(),
