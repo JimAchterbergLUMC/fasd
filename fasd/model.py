@@ -7,53 +7,118 @@ from .model_components import FASD
 
 
 class TabularFASD(BaseGenerator):
+    """
+    Generator object to train a Fidelity Agnostic Synthetic Data algorithm and synthesize new data.
+    """
 
     def __init__(
         self,
         target_column: str,
-        representation_dim=100,
-        predictor_hidden_layers=[],
-        predictor_nonlin="relu",
-        representations_nonlin="tanh",
-        predictor_dropout=0,
-        decoder_hidden_layers=[100],
-        decoder_nonlin="relu",
-        decoder_dropout=0,
-        vae_encoder_hidden_layers=[128, 128],
-        vae_encoder_nonlin="relu",
-        vae_encoder_dropout=0,
-        vae_decoder_hidden_layers=[128, 128],
-        vae_decoder_nonlin="relu",
-        vae_decoder_dropout=0,
-        vae_embedding_size=128,
+        representation_dim: int = 100,
+        predictor_hidden_layers: list = [],
+        predictor_nonlin: str = "relu",
+        representations_nonlin: str = "tanh",
+        predictor_dropout: float = 0,
+        predictor_epochs: int = 100,
+        predictor_batch_size: int = 512,
+        predictor_lr: float = 1e-3,
+        predictor_opt_betas: tuple = (0.9, 0.999),
+        predictor_weight_decay: float = 1e-3,
+        predictor_early_stopping: bool = True,
+        predictor_n_iter_min: int = 10,
+        predictor_patience: int = 50,
+        predictor_clipping_value: float = 0,
+        decoder_hidden_layers: list = [100],
+        decoder_nonlin: str = "relu",
+        decoder_dropout: float = 0,
+        decoder_epochs: int = 100,
+        decoder_batch_size: int = 512,
+        decoder_lr: float = 1e-3,
+        decoder_opt_betas: tuple = (0.9, 0.999),
+        decoder_weight_decay: float = 1e-3,
+        decoder_early_stopping: bool = True,
+        decoder_n_iter_min: int = 10,
+        decoder_patience: int = 50,
+        decoder_clipping_value: float = 0,
+        vae_encoder_hidden_layers: list = [128, 128],
+        vae_encoder_nonlin: str = "relu",
+        vae_encoder_dropout: float = 0,
+        vae_decoder_hidden_layers: list = [128, 128],
+        vae_decoder_nonlin: str = "relu",
+        vae_decoder_dropout: float = 0,
+        vae_embedding_size: int = 128,
+        vae_loss_factor: int = 1,
+        vae_epochs: int = 100,
+        vae_batch_size: int = 512,
+        vae_lr: float = 1e-3,
+        vae_opt_betas: tuple = (0.9, 0.999),
+        vae_weight_decay: float = 1e-3,
+        vae_early_stopping: bool = True,
+        vae_n_iter_min: int = 10,
+        vae_patience: int = 50,
+        vae_clipping_value: float = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.target_column = target_column
-        self.representation_dim = representation_dim
+        predictor_hidden_layers.append(representation_dim)
 
-        self.predictor_hidden_layers = predictor_hidden_layers
-        self.predictor_hidden_layers.append(self.representation_dim)
-        self.predictor_nonlin = predictor_nonlin
-        self.predictor_dropout = predictor_dropout
+        self.predictor_config = dict(
+            representation_dim=representation_dim,
+            hidden_layers=predictor_hidden_layers,
+            epochs=predictor_epochs,
+            clipping_value=predictor_clipping_value,
+            patience=predictor_patience,
+            n_iter_min=predictor_n_iter_min,
+            early_stopping=predictor_early_stopping,
+            weight_decay=predictor_weight_decay,
+            opt_betas=predictor_opt_betas,
+            batch_size=predictor_batch_size,
+            nonlin=predictor_nonlin,
+            representations_nonlin=representations_nonlin,
+            lr=predictor_lr,
+            dropout=predictor_dropout,
+        )
 
-        self.representations_nonlin = representations_nonlin
+        self.vae_config = dict(
+            epochs=vae_epochs,
+            clipping_value=vae_clipping_value,
+            patience=vae_patience,
+            n_iter_min=vae_n_iter_min,
+            early_stopping=vae_early_stopping,
+            weight_decay=vae_weight_decay,
+            opt_betas=vae_opt_betas,
+            lr=vae_lr,
+            batch_size=vae_batch_size,
+            encoder_hidden_layers=vae_encoder_hidden_layers,
+            encoder_nonlin=vae_encoder_nonlin,
+            encoder_dropout=vae_encoder_dropout,
+            decoder_hidden_layers=vae_decoder_hidden_layers,
+            decoder_nonlin=vae_decoder_nonlin,
+            decoder_dropout=vae_decoder_dropout,
+            embedding_size=vae_embedding_size,
+            loss_factor=vae_loss_factor,
+        )
 
-        self.decoder_hidden_layers = decoder_hidden_layers
-        self.decoder_nonlin = decoder_nonlin
-        self.decoder_dropout = decoder_dropout
-
-        self.vae_encoder_hidden_layers = vae_encoder_hidden_layers
-        self.vae_encoder_nonlin = vae_encoder_nonlin
-        self.vae_encoder_dropout = vae_encoder_dropout
-
-        self.vae_decoder_hidden_layers = vae_decoder_hidden_layers
-        self.vae_decoder_nonlin = vae_decoder_nonlin
-        self.vae_decoder_dropout = vae_decoder_dropout
-
-        self.vae_embedding_size = vae_embedding_size
+        self.decoder_config = dict(
+            epochs=decoder_epochs,
+            clipping_value=decoder_clipping_value,
+            patience=decoder_patience,
+            n_iter_min=decoder_n_iter_min,
+            early_stopping=decoder_early_stopping,
+            weight_decay=decoder_weight_decay,
+            opt_betas=decoder_opt_betas,
+            lr=decoder_lr,
+            batch_size=decoder_batch_size,
+            hidden_layers=decoder_hidden_layers,
+            nonlin=decoder_nonlin,
+            dropout=decoder_dropout,
+        )
 
     def _fit_model(self, X: pd.DataFrame, discrete_features: list):
+        """
+        Fit the FASD algorithm on the provided tabular data.
+        """
         if self.target_column not in X.columns.tolist():
             raise Exception("Provided target column name not found in dataset.")
         self.ori_cols = X.columns.tolist()
@@ -104,27 +169,9 @@ class TabularFASD(BaseGenerator):
             task=task,
             target_dim=target_dim,
             input_dims=input_dims,
-            representation_dim=self.representation_dim,
-            predictor_hidden_layers=self.predictor_hidden_layers,
-            predictor_nonlin=self.predictor_nonlin,
-            predictor_batch_norm=False,
-            predictor_residual=False,
-            representations_nonlin=self.representations_nonlin,
-            predictor_dropout=self.predictor_dropout,
-            decoder_hidden_layers=self.decoder_hidden_layers,
-            decoder_batch_norm=False,
-            decoder_residual=False,
-            decoder_nonlin=self.decoder_nonlin,
-            decoder_dropout=self.decoder_dropout,
-            vae_encoder_hidden_layers=self.vae_encoder_hidden_layers,
-            vae_batch_norm=False,
-            vae_residual=False,
-            vae_encoder_nonlin=self.vae_encoder_nonlin,
-            vae_encoder_dropout=self.vae_encoder_dropout,
-            vae_decoder_hidden_layers=self.vae_decoder_hidden_layers,
-            vae_decoder_nonlin=self.vae_decoder_nonlin,
-            vae_decoder_dropout=self.vae_decoder_dropout,
-            vae_embedding_size=self.vae_embedding_size,
+            predictor_config=self.predictor_config,
+            vae_config=self.vae_config,
+            decoder_config=self.decoder_config,
             random_state=self.random_state,
         )
 
@@ -132,6 +179,9 @@ class TabularFASD(BaseGenerator):
         return self
 
     def _generate_data(self, n: int):
+        """
+        Generate `n` synthetic samples using the trained FASD model.
+        """
 
         # generate data
         syn_X, syn_y = self.fasd._generate(n)

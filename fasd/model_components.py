@@ -16,69 +16,42 @@ class FASD:
         task: str,
         target_dim: int,
         input_dims: list[int],
-        representation_dim: int,
-        predictor_hidden_layers: list = [100],
-        predictor_nonlin: str = "relu",
-        representations_nonlin: str = "tanh",
-        predictor_dropout: float = 0,
-        predictor_batch_norm: bool = False,
-        predictor_residual: bool = False,
-        decoder_hidden_layers: list = [100],
-        decoder_nonlin: str = "relu",
-        decoder_dropout: float = 0,
-        decoder_batch_norm: bool = False,
-        decoder_residual: bool = False,
-        vae_encoder_hidden_layers: list = [100],
-        vae_encoder_nonlin: str = "relu",
-        vae_encoder_dropout: float = 0,
-        vae_decoder_hidden_layers: list = [100],
-        vae_decoder_nonlin: str = "relu",
-        vae_decoder_dropout: float = 0,
-        vae_embedding_size: int = 100,
-        vae_batch_norm: bool = False,
-        vae_residual: bool = False,
+        predictor_config: dict,
+        vae_config: dict,
+        decoder_config: dict,
         random_state: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.predictor_config = predictor_config
+        self.vae_config = vae_config
+        self.decoder_config = decoder_config
 
-        self.representations_nonlin = representations_nonlin
         self.task = task
 
         self.fasd_predictor = Predictor(
             task=task,
             input_dim=sum(input_dims),
             output_dim=target_dim,
-            hidden_layers=predictor_hidden_layers,
-            nonlin=predictor_nonlin,
-            nonlin_representations=representations_nonlin,
-            dropout=predictor_dropout,
-            residual=predictor_residual,
-            batch_norm=predictor_batch_norm,
+            predictor_config=predictor_config,
+            device=self.device,
             random_state=random_state,
         )
         self.fasd_decoder = Decoder(
-            input_dim=representation_dim,
+            input_dim=self.predictor_config["representation_dim"],
             output_dims=input_dims,
-            hidden_layers=decoder_hidden_layers,
-            nonlin=decoder_nonlin,
-            dropout=decoder_dropout,
-            batch_norm=decoder_batch_norm,
-            residual=decoder_residual,
+            decoder_config=decoder_config,
+            device=self.device,
             random_state=random_state,
         )
         self.fasd_generator = VAE(
             input_dims=[1]
-            * representation_dim,  # continuous representations as input to the VAE
-            encoder_hidden_layers=vae_encoder_hidden_layers,
-            decoder_hidden_layers=vae_decoder_hidden_layers,
-            embedding_size=vae_embedding_size,
-            encoder_nonlin=vae_encoder_nonlin,
-            decoder_nonlin=vae_decoder_nonlin,
-            encoder_dropout=vae_encoder_dropout,
-            decoder_dropout=vae_decoder_dropout,
-            residual=vae_residual,
-            batch_norm=vae_batch_norm,
+            * self.predictor_config[
+                "representation_dim"
+            ],  # continuous representations as input to the VAE
+            vae_config=vae_config,
+            device=self.device,
             random_state=random_state,
         )
 
@@ -94,7 +67,7 @@ class FASD:
 
         # extract representations from the predictor by passing X through encoder portion
         Xt_rep = self.fasd_predictor.encoder(Xt)
-        if self.representations_nonlin.lower() == "none":
+        if self.predictor_config["representations_nonlin"].lower() == "none":
             Xt_rep = torch.clamp(Xt_rep, -1, 1)
 
         # train the generator (self-supervised on representations)
@@ -128,8 +101,6 @@ class FASD:
 
         return X, y
 
-    # TBD: check if its indeed possible to interchange models and datasets between devices like this
-
 
 class Predictor(nn.Module):
 
@@ -138,49 +109,32 @@ class Predictor(nn.Module):
         task: str,  # "classification" or "regression"
         input_dim: int,
         output_dim: int,
-        hidden_layers: list,
-        nonlin: str,
-        nonlin_representations: str,
-        dropout: float,
-        residual: bool,
-        batch_norm: bool,
+        predictor_config: dict,
+        device,
         random_state: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.device = device
         self.task = task
         self.input_dim = input_dim
-        self.hidden_layers = hidden_layers
-        self.nonlin = nonlin
-        self.nonlin_representations = nonlin_representations
-        self.dropout = dropout
-        self.residual = residual
-        self.batch_norm = batch_norm
         self.random_state = random_state
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-3
-        self.opt_betas = (0.9, 0.999)
-        self.weight_decay = 1e-3
-        self.batch_size = 512
-        self.epochs = 100
-        self.patience = 50
-        self.early_stopping = True
-        self.n_iter_min = 10
-        self.clipping_value = 0
+        self.predictor_config = predictor_config
 
         encoder_output_config = [
-            (1, self.nonlin_representations)
-            for x in list(range(self.hidden_layers[-1]))
+            (1, predictor_config["representations_nonlin"])
+            for x in list(range(predictor_config["hidden_layers"][-1]))
         ]
         self.encoder = MLP(
             input_dim=self.input_dim,
             output_config=encoder_output_config,
-            hidden_dims=self.hidden_layers[:-1],  # last one is output layer
-            nonlinearity=self.nonlin,
-            dropout=self.dropout,
-            residual=self.residual,
-            batch_norm=self.batch_norm,
+            hidden_dims=predictor_config["hidden_layers"][
+                :-1
+            ],  # last one is output layer
+            nonlinearity=predictor_config["nonlin"],
+            dropout=predictor_config["dropout"],
+            residual=False,
+            batch_norm=False,
         ).to(self.device)
 
         if self.task == "classification":
@@ -191,7 +145,7 @@ class Predictor(nn.Module):
             self.criterion = nn.MSELoss()
 
         self.predictor = MLP(
-            input_dim=self.hidden_layers[-1],
+            input_dim=predictor_config["hidden_layers"][-1],
             output_config=[(output_dim, output_nonlin)],
             hidden_dims=[],  # only output layer
             nonlinearity="none",
@@ -203,7 +157,7 @@ class Predictor(nn.Module):
     def forward(self, X: torch.Tensor):
         X = self.encoder(X)
         # ensure reasonable range of representations if no hidden activation
-        if self.nonlin_representations.lower() == "none":
+        if self.predictor_config["representations_nonlin"].lower() == "none":
             X = torch.clamp(X, -1, 1)
         return self.predictor(X)
 
@@ -230,23 +184,27 @@ class Predictor(nn.Module):
 
         # create dataloaders
         loader = DataLoader(
-            dataset=TensorDataset(Xt, yt), batch_size=self.batch_size, pin_memory=False
+            dataset=TensorDataset(Xt, yt),
+            batch_size=self.predictor_config["batch_size"],
+            pin_memory=False,
         )
         val_loader = DataLoader(
             dataset=TensorDataset(Xt_val, yt_val),
-            batch_size=self.batch_size,
+            batch_size=self.predictor_config["batch_size"],
             pin_memory=False,
         )
 
         # --- perform the training loop
         optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=self.predictor_config["lr"],
+            weight_decay=self.predictor_config["weight_decay"],
         )
 
         best_state_dict = None
         best_loss = float("inf")
         patience = 0
-        for epoch in tqdm(range(self.epochs)):
+        for epoch in tqdm(range(self.predictor_config["epochs"])):
             self.train()
             train_loss = 0
             for inputs, targets in loader:
@@ -255,9 +213,9 @@ class Predictor(nn.Module):
                     targets = targets.long()
                 loss = self.criterion(outputs, targets)
                 optimizer.zero_grad()
-                if self.clipping_value > 0:
+                if self.predictor_config["clipping_value"] > 0:
                     torch.nn.utils.clip_grad_norm_(
-                        self.parameters(), self.clipping_value
+                        self.parameters(), self.predictor_config["clipping_value"]
                     )
                 loss.backward()
                 optimizer.step()
@@ -272,7 +230,10 @@ class Predictor(nn.Module):
                 best_state_dict = self.state_dict()
                 patience = 0
 
-            if patience >= self.patience and epoch >= self.n_iter_min:
+            if (
+                patience >= self.predictor_config["patience"]
+                and epoch >= self.predictor_config["n_iter_min"]
+            ):
                 break
 
         if best_state_dict is not None:
@@ -305,34 +266,17 @@ class Decoder(nn.Module):
         self,
         input_dim: int,
         output_dims: list[int],  # list of dimensions of each original feature
-        hidden_layers: list,
-        nonlin: str,
-        dropout: float,
-        residual: bool,
-        batch_norm: bool,
+        decoder_config: dict,
+        device,
         random_state: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.input_dim = input_dim
         self.output_dims = output_dims
-        self.hidden_layers = hidden_layers
-        self.nonlin = nonlin
-        self.dropout = dropout
-        self.residual = residual
-        self.batch_norm = batch_norm
+        self.device = device
         self.random_state = random_state
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-3
-        self.opt_betas = (0.9, 0.999)
-        self.weight_decay = 1e-3
-        self.batch_size = 512
-        self.epochs = 100
-        self.patience = 50
-        self.early_stopping = True
-        self.n_iter_min = 10
-        self.clipping_value = 0
+        self.decoder_config = decoder_config
 
         decoder_output_nonlin = [
             "gumbel_softmax" if x > 1 else "tanh" for x in self.output_dims
@@ -344,11 +288,11 @@ class Decoder(nn.Module):
         self.decoder = MLP(
             input_dim=self.input_dim,
             output_config=self.decoder_output_config,
-            hidden_dims=self.hidden_layers,
-            nonlinearity=self.nonlin,
-            dropout=self.dropout,
-            residual=self.residual,
-            batch_norm=self.batch_norm,
+            hidden_dims=self.decoder_config["hidden_layers"],
+            nonlinearity=self.decoder_config["nonlin"],
+            dropout=self.decoder_config["dropout"],
+            residual=False,
+            batch_norm=False,
         ).to(self.device)
 
     def forward(self, X: torch.Tensor):
@@ -376,32 +320,36 @@ class Decoder(nn.Module):
 
         # create dataloaders
         loader = DataLoader(
-            dataset=TensorDataset(Xt, yt), batch_size=self.batch_size, pin_memory=False
+            dataset=TensorDataset(Xt, yt),
+            batch_size=self.decoder_config["batch_size"],
+            pin_memory=False,
         )
         val_loader = DataLoader(
             dataset=TensorDataset(Xt_val, yt_val),
-            batch_size=self.batch_size,
+            batch_size=self.decoder_config["batch_size"],
             pin_memory=False,
         )
 
         # --- perform the training loop
         optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=self.decoder_config["lr"],
+            weight_decay=self.decoder_config["weight_decay"],
         )
 
         best_state_dict = None
         best_loss = float("inf")
         patience = 0
-        for epoch in tqdm(range(self.epochs)):
+        for epoch in tqdm(range(self.decoder_config["epochs"])):
             self.train()
             train_loss = 0
             for inputs, targets in loader:
                 outputs = self.forward(inputs)
                 loss = self._loss_function(outputs, targets)
                 optimizer.zero_grad()
-                if self.clipping_value > 0:
+                if self.decoder_config["clipping_value"] > 0:
                     torch.nn.utils.clip_grad_norm_(
-                        self.parameters(), self.clipping_value
+                        self.parameters(), self.decoder_config["clipping_value"]
                     )
                 loss.backward()
                 optimizer.step()
@@ -416,7 +364,10 @@ class Decoder(nn.Module):
                 best_state_dict = self.state_dict()
                 patience = 0
 
-            if patience >= self.patience and epoch >= self.n_iter_min:
+            if (
+                patience >= self.decoder_config["patience"]
+                and epoch >= self.decoder_config["n_iter_min"]
+            ):
                 break
 
         if best_state_dict is not None:
@@ -481,61 +432,37 @@ class VAE(nn.Module):
     def __init__(
         self,
         input_dims: list[int],  # list of dimensions of each original feature
-        encoder_hidden_layers: list,
-        decoder_hidden_layers: list,
-        embedding_size: int,
-        encoder_nonlin: str,
-        decoder_nonlin: str,
-        encoder_dropout: float,
-        decoder_dropout: float,
-        residual: bool,
-        batch_norm: bool,
+        vae_config: dict,
+        device,
         random_state: int = 0,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.input_dims = input_dims
-        self.embedding_size = embedding_size
-        self.encoder_hidden_layers = encoder_hidden_layers
-        self.decoder_hidden_layers = decoder_hidden_layers
-        self.encoder_nonlin = encoder_nonlin
-        self.decoder_nonlin = decoder_nonlin
-        self.encoder_dropout = encoder_dropout
-        self.decoder_dropout = decoder_dropout
-        self.residual = residual
-        self.batch_norm = batch_norm
+        self.device = device
+        self.vae_config = vae_config
         self.random_state = random_state
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-3
-        self.opt_betas = (0.9, 0.999)
-        self.weight_decay = 1e-3
-        self.batch_size = 512
-        self.epochs = 100
-        self.patience = 50
-        self.early_stopping = True
-        self.n_iter_min = 10
-        self.loss_factor = 1
-        self.clipping_value = 0
-
         encoder_output_config = [
-            (1, self.encoder_nonlin)
-            for x in list(range(self.encoder_hidden_layers[-1]))
+            (1, self.vae_config["encoder_nonlin"])
+            for x in list(range(self.vae_config["encoder_hidden_layers"][-1]))
         ]
         self.encoder = MLP(
             input_dim=len(input_dims),
             output_config=encoder_output_config,
-            hidden_dims=self.encoder_hidden_layers,
-            nonlinearity=self.encoder_nonlin,
-            dropout=self.encoder_dropout,
-            residual=self.residual,
-            batch_norm=self.batch_norm,
+            hidden_dims=self.vae_config["encoder_hidden_layers"],
+            nonlinearity=self.vae_config["encoder_nonlin"],
+            dropout=self.vae_config["encoder_dropout"],
+            residual=False,
+            batch_norm=False,
         ).to(self.device)
-        self.mu_fc = nn.Linear(self.encoder_hidden_layers[-1], self.embedding_size).to(
-            self.device
-        )
+        self.mu_fc = nn.Linear(
+            self.vae_config["encoder_hidden_layers"][-1],
+            self.vae_config["embedding_size"],
+        ).to(self.device)
         self.logvar_fc = nn.Linear(
-            self.encoder_hidden_layers[-1], self.embedding_size
+            self.vae_config["encoder_hidden_layers"][-1],
+            self.vae_config["embedding_size"],
         ).to(self.device)
 
         decoder_output_nonlin = [
@@ -545,13 +472,13 @@ class VAE(nn.Module):
             (d, n) for d, n in zip(self.input_dims, decoder_output_nonlin)
         ]
         self.decoder = MLP(
-            input_dim=self.embedding_size,
+            input_dim=self.vae_config["embedding_size"],
             output_config=self.decoder_output_config,
-            hidden_dims=self.decoder_hidden_layers,
-            nonlinearity=self.decoder_nonlin,
-            dropout=self.decoder_dropout,
-            residual=self.residual,
-            batch_norm=self.batch_norm,
+            hidden_dims=self.vae_config["decoder_hidden_layers"],
+            nonlinearity=self.vae_config["decoder_nonlin"],
+            dropout=self.vae_config["decoder_dropout"],
+            residual=False,
+            batch_norm=False,
         ).to(self.device)
 
     def reparameterize(self, mu, logvar):
@@ -597,23 +524,27 @@ class VAE(nn.Module):
 
         # create dataloaders
         loader = DataLoader(
-            dataset=TensorDataset(Xt), batch_size=self.batch_size, pin_memory=False
+            dataset=TensorDataset(Xt),
+            batch_size=self.vae_config["batch_size"],
+            pin_memory=False,
         )
         val_loader = DataLoader(
             dataset=TensorDataset(Xt_val),
-            batch_size=self.batch_size,
+            batch_size=self.vae_config["batch_size"],
             pin_memory=False,
         )
 
         # --- perform the training loop
         optimizer = torch.optim.Adam(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=self.vae_config["lr"],
+            weight_decay=self.vae_config["weight_decay"],
         )
 
         best_state_dict = None
         best_loss = float("inf")
         patience = 0
-        for epoch in tqdm(range(self.epochs)):
+        for epoch in tqdm(range(self.vae_config["epochs"])):
             self.train()
             train_loss = 0
             for inputs in loader:
@@ -621,9 +552,9 @@ class VAE(nn.Module):
                 outputs, mu, logvar = self.forward(inputs)
                 loss = self._loss_function(outputs, inputs, mu, logvar)
                 optimizer.zero_grad()
-                if self.clipping_value > 0:
+                if self.vae_config["clipping_value"] > 0:
                     torch.nn.utils.clip_grad_norm_(
-                        self.parameters(), self.clipping_value
+                        self.parameters(), self.vae_config["clipping_value"]
                     )
                 loss.backward()
                 optimizer.step()
@@ -638,19 +569,26 @@ class VAE(nn.Module):
                 best_state_dict = self.state_dict()
                 patience = 0
 
-            if patience >= self.patience and epoch >= self.n_iter_min:
+            if (
+                patience >= self.vae_config["patience"]
+                and epoch >= self.vae_config["n_iter_min"]
+            ):
                 break
 
         if best_state_dict is not None:
             self.load_state_dict(best_state_dict)
 
     def _generate(self, n: int):
-        batches = n // self.batch_size + 1
+        batches = n // self.vae_config["batch_size"] + 1
         data = []
 
         for idx in range(batches):
-            mean = torch.zeros(self.batch_size, self.embedding_size)
-            std = torch.ones(self.batch_size, self.embedding_size)
+            mean = torch.zeros(
+                self.vae_config["batch_size"], self.vae_config["embedding_size"]
+            )
+            std = torch.ones(
+                self.vae_config["batch_size"], self.vae_config["embedding_size"]
+            )
             noise = torch.normal(mean=mean, std=std).to(self.device)
             fake = self.decoder(noise)
             data.append(fake)
@@ -717,7 +655,7 @@ class VAE(nn.Module):
         if torch.isnan(KLD_loss):
             raise RuntimeError("NaNs detected in the KLD_loss")
 
-        return reconstruction_loss * self.loss_factor + KLD_loss
+        return reconstruction_loss * self.vae_config["loss_factor"] + KLD_loss
 
     def _check_tensor(self, X: torch.Tensor) -> torch.Tensor:
         if isinstance(X, torch.Tensor):

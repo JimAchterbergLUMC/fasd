@@ -12,6 +12,9 @@ def postprocess(
     missing_indicators: pd.DataFrame = None,
     missing_suffix: str = "_missing",
 ):
+    """
+    Post-processes a synthetic DataFrame to align with the structure and types of the original DataFrame.
+    """
     df_syn = df_syn.copy()
     df_ori = df_ori.copy()
     numerical_features = [x for x in df_ori.columns if x not in discrete_features]
@@ -23,7 +26,6 @@ def postprocess(
             missing_suffix=missing_suffix,
         )
 
-    # always align numerical precision and align dtypes of synthetic with original data
     df_syn[numerical_features] = align_precision(
         df_ori[numerical_features], df_syn[numerical_features]
     )
@@ -36,6 +38,9 @@ def preprocess(
     df: pd.DataFrame,
     missing_indicators: pd.DataFrame = None,
 ):
+    """
+    Preprocesses a DataFrame by randomly imputing missing values and appending missing indicators if provided.
+    """
     df = df.copy()
     if missing_indicators is not None:
         df = random_impute(df)
@@ -45,34 +50,28 @@ def preprocess(
 
 
 def align_precision(df_ref: pd.DataFrame, df_to_align: pd.DataFrame) -> pd.DataFrame:
-
+    """
+    Aligns the numeric precision of df_to_align to match df_ref.
+    """
     with warnings.catch_warnings():
-        # catches warnings relating to rounding of numeric columns which contain NaNs
         warnings.simplefilter("ignore", category=RuntimeWarning)
-
         df_aligned = df_to_align.copy()
 
         for col in df_ref.columns.intersection(df_to_align.columns):
             if pd.api.types.is_numeric_dtype(
                 df_ref[col]
             ) and pd.api.types.is_numeric_dtype(df_to_align[col]):
-                # Check if reference column is integer
                 if pd.api.types.is_integer_dtype(df_ref[col]):
-                    # Convert df_to_align column to integer type if possible
                     df_aligned[col] = df_aligned[col].round().astype("Int64")
                 elif pd.api.types.is_float_dtype(df_ref[col]):
-                    # Determine decimal places in df_ref column (based on example values)
-                    # We find max decimal places from the reference column values
 
-                    # Helper to count decimals in floats:
                     def count_decimals(x):
                         if pd.isna(x) or not np.isfinite(x):
                             return 0
                         s = str(x)
                         if "." in s:
                             return len(s.split(".")[-1].rstrip("0"))
-                        else:
-                            return 0
+                        return 0
 
                     decimal_places = df_ref[col].dropna().map(count_decimals).max()
                     if pd.isna(decimal_places):
@@ -84,6 +83,9 @@ def align_precision(df_ref: pd.DataFrame, df_to_align: pd.DataFrame) -> pd.DataF
 
 
 def align_dtypes(df_ref: pd.DataFrame, df_to_align: pd.DataFrame):
+    """
+    Aligns the data types of df_to_align to match those of df_ref.
+    """
     for col in df_ref.columns:
         if col in df_to_align.columns:
             df_to_align[col] = df_to_align[col].astype(df_ref[col].dtype)
@@ -91,6 +93,9 @@ def align_dtypes(df_ref: pd.DataFrame, df_to_align: pd.DataFrame):
 
 
 def random_impute(df: pd.DataFrame):
+    """
+    Fills missing values in each column with random samples from the non-missing values of that column.
+    """
     df_imputed = df.copy()
     for col in df_imputed.columns:
         if df_imputed[col].isnull().any():
@@ -106,19 +111,21 @@ def random_impute(df: pd.DataFrame):
 def reinstate_nans(
     df: pd.DataFrame, missing_indicators: pd.DataFrame, missing_suffix: str
 ):
+    """
+    Reintroduces NaN values into a DataFrame based on missing indicator columns.
+    """
     df = df.copy()
     for col in missing_indicators.columns:
         original_col = col.replace(missing_suffix, "")
-        # Wherever indicator is 1, set NaN in synthetic_df
-        is_missing = (
-            missing_indicators[col].astype(str) == "1"
-        )  # some models internally generate string indicators for discrete columns, this fixes that
+        is_missing = missing_indicators[col].astype(str) == "1"
         df.loc[is_missing, original_col] = np.nan
     return df
 
 
 def get_discretes(df: pd.DataFrame, discrete_threshold: int = None):
-
+    """
+    Identifies discrete features based on type and/or unique value count.
+    """
     if (discrete_threshold is None) or discrete_threshold == 0:
         discrete_threshold = -float("inf")
 
@@ -134,8 +141,11 @@ def get_discretes(df: pd.DataFrame, discrete_threshold: int = None):
 
 
 def set_seed(seed: int = 42):
-    random.seed(seed)  # Python built-in random
-    np.random.seed(seed)  # NumPy
-    torch.manual_seed(seed)  # PyTorch CPU
-    torch.cuda.manual_seed(seed)  # PyTorch CUDA (single GPU)
-    torch.cuda.manual_seed_all(seed)  # PyTorch CUDA (all GPUs)
+    """
+    Sets random seed across Python, NumPy, and PyTorch (CPU and CUDA).
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
