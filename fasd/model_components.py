@@ -59,8 +59,8 @@ class FASD:
         self.X_cols = X.columns
         self.y_col = y.name
         # turn input into torch tensors
-        Xt = torch.from_numpy(X.to_numpy()).float()
-        yt = torch.from_numpy(y.to_numpy()).float()
+        Xt = torch.from_numpy(X.to_numpy()).float().to(self.device)
+        yt = torch.from_numpy(y.to_numpy()).float().to(self.device)
 
         # train the predictor
         self.fasd_predictor._train(Xt, yt)
