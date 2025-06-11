@@ -15,7 +15,7 @@ class BaseGenerator:
         self.X_ori = X.copy()
         self.discrete_features = discrete_features
         if self.discrete_features is None:
-            self.discrete_features = get_discretes(df=X, discrete_threshold=5)
+            self.discrete_features = get_discretes(df=X, discrete_threshold=10)
 
         X[self.discrete_features] = X[self.discrete_features].astype(str)
 

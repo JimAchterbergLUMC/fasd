@@ -199,6 +199,7 @@ class Predictor(nn.Module):
             self.parameters(),
             lr=self.predictor_config["lr"],
             weight_decay=self.predictor_config["weight_decay"],
+            betas=self.predictor_config["opt_betas"],
         )
 
         best_state_dict = None
@@ -335,6 +336,7 @@ class Decoder(nn.Module):
             self.parameters(),
             lr=self.decoder_config["lr"],
             weight_decay=self.decoder_config["weight_decay"],
+            betas=self.decoder_config["opt_betas"],
         )
 
         best_state_dict = None
@@ -539,6 +541,7 @@ class VAE(nn.Module):
             self.parameters(),
             lr=self.vae_config["lr"],
             weight_decay=self.vae_config["weight_decay"],
+            betas=self.vae_config["opt_betas"],
         )
 
         best_state_dict = None
