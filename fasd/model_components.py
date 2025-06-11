@@ -97,7 +97,7 @@ class FASD:
 
         # turn X and y into dataframes (note that before this all data was still on-device)
         X = pd.DataFrame(Xt_syn.detach().cpu().numpy(), columns=self.X_cols)
-        y = pd.Series(yt_syn.detach().cpu().numpy(), name=self.y_col)
+        y = pd.Series(yt_syn.squeeze(-1).detach().cpu().numpy(), name=self.y_col)
 
         return X, y
 
@@ -210,6 +210,7 @@ class Predictor(nn.Module):
             train_loss = 0
             for inputs, targets in loader:
                 outputs = self.forward(inputs)
+                outputs = outputs.squeeze(-1)
                 if self.task == "classification":
                     targets = targets.long()
                 loss = self.criterion(outputs, targets)
@@ -248,6 +249,7 @@ class Predictor(nn.Module):
         with torch.no_grad():
             for inputs, targets in val_loader:
                 outputs = self.forward(inputs)
+                outputs = outputs.squeeze(-1)
                 if self.task == "classification":
                     targets = targets.long()
                 loss = self.criterion(outputs, targets)

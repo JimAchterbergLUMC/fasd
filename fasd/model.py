@@ -149,8 +149,9 @@ class TabularFASD(BaseGenerator):
         # preprocess target feature
         if self.target_column in discrete_features:
             encoder = LabelEncoder()  # classifiers expect integer labels
-            task = "classification"
+            self.task = "classification"
             target_dim = y.nunique()
+            y = encoder.fit_transform(y)
         else:
             if y.nunique() < 15:
                 raise Warning(
@@ -158,15 +159,15 @@ class TabularFASD(BaseGenerator):
                     "Are you sure the target should not be handled as discrete? "
                     "If so, please add it to the list of discrete features..."
                 )
-            task = "regression"
+            self.task = "regression"
             encoder = MinMaxScaler(feature_range=(-1, 1))
             target_dim = 1
-        y = encoder.fit_transform(y)
-        y = pd.Series(y, name=self.target_column)
+            y = encoder.fit_transform(y.to_frame())
+        y = pd.Series(y.squeeze(), name=self.target_column)
         self.encoder_y = encoder
 
         self.fasd = FASD(
-            task=task,
+            task=self.task,
             target_dim=target_dim,
             input_dims=input_dims,
             predictor_config=self.predictor_config,
@@ -205,8 +206,10 @@ class TabularFASD(BaseGenerator):
         syn_X = pd.concat(syn_x, axis=1)
 
         # reverse y preprocessing
+        if self.task == "regression":
+            syn_y = syn_y.to_frame()
         syn_y = self.encoder_y.inverse_transform(syn_y)
-        syn_y = pd.Series(syn_y, name=self.target_column)
+        syn_y = pd.Series(syn_y.squeeze(), name=self.target_column)
 
         syn = pd.concat((syn_X, syn_y), axis=1)
         syn = syn[self.ori_cols]
